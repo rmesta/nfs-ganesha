@@ -228,7 +228,7 @@ cache_inode_status_t cache_inode_rename(cache_entry_t *dir_src,
 
     src_dest_unlock(dir_src, dir_dest);
 
-    LogDebug(COMPONENT_CACHE_INODE,
+    LogEvent(COMPONENT_CACHE_INODE,
              "Rename (%p,%s)->(%p,%s) : source doesn't exist",
              dir_src, oldname, dir_dest, newname);
     goto out;
@@ -274,11 +274,15 @@ cache_inode_status_t cache_inode_rename(cache_entry_t *dir_src,
       if (fsal_status.major == ERR_FSAL_STALE) {
            fsal_status = handle_dirsrc->ops->getattrs(handle_dirsrc, req_ctx);
            if (fsal_status.major == ERR_FSAL_STALE) {
+                LogEvent(COMPONENT_CACHE_INODE,
+                   "FSAL returned STALE on rename, source");
                 cache_inode_kill_entry(dir_src);
            }
            fsal_status = handle_dirdest->ops->getattrs(handle_dirdest,
 						       req_ctx);
            if (fsal_status.major == ERR_FSAL_STALE) {
+                LogEvent(COMPONENT_CACHE_INODE,
+                   "FSAL returned STALE on rename, destination");
                 cache_inode_kill_entry(dir_dest);
            }
       }
