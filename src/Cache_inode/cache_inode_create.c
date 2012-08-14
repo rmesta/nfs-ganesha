@@ -175,11 +175,13 @@ cache_inode_create(cache_entry_t *parent,
             break;
     }
 
-     cache_inode_refresh_attrs_locked(parent, req_ctx);
-
      /* Check for the result */
      if (FSAL_IS_ERROR(fsal_status)) {
-          if (fsal_status.major == ERR_FSAL_EXIST) {
+          if (fsal_status.major == ERR_FSAL_STALE) {
+               LogEvent(COMPONENT_CACHE_INODE,
+                        "FSAL returned STALE on create type %d", type);
+               cache_inode_kill_entry(parent);
+          } else if (fsal_status.major == ERR_FSAL_EXIST) {
                /* Already exists. Check if type if correct */
                status = cache_inode_lookup(parent,
                                            name,
@@ -189,16 +191,9 @@ cache_inode_create(cache_entry_t *parent,
                     status = CACHE_INODE_ENTRY_EXISTS;
                     if ((*entry)->type != type) {
                          /* Incompatible types, returns NULL */
-                         cache_inode_put(*entry);
+                         cache_inode_lru_unref(*entry, LRU_FLAG_NONE);
                          *entry = NULL;
                     }
-                    goto out;
-               }
-
-               if (status == CACHE_INODE_NOT_FOUND) {
-                    /* Too bad, FSAL insist the file exists when we try to
-                     * create it, but lookup couldn't find it, retry. */
-                    status = CACHE_INODE_INCONSISTENT_ENTRY;
                     goto out;
                }
           }
@@ -222,12 +217,27 @@ cache_inode_create(cache_entry_t *parent,
 					    NULL);
      PTHREAD_RWLOCK_unlock(&parent->content_lock);
      if (status != CACHE_INODE_SUCCESS) {
-          cache_inode_put(*entry);
+          cache_inode_lru_unref(*entry, LRU_FLAG_NONE);
           *entry = NULL;
           goto out;
      }
 
+     PTHREAD_RWLOCK_wrlock(&parent->attr_lock);
+     /* Update the parent cached attributes */
+     cache_inode_set_time_current(&parent->obj_handle->attributes.mtime);
+     parent->obj_handle->attributes.ctime
+             = parent->obj_handle->attributes.mtime;
+     /* if the created object is a directory, it contains a link
+        to its parent : '..'. Thus the numlink attr must be increased. */
+     if (type == DIRECTORY) {
+          ++(parent->obj_handle->attributes.numlinks);
+     }
+     PTHREAD_RWLOCK_unlock(&parent->attr_lock);
+
+     status = CACHE_INODE_SUCCESS;
+
 out:
+
      return status;
 }
 
